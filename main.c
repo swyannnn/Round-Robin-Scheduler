@@ -24,19 +24,20 @@ typedef enum {
 
 // Structure to represent each process
 typedef struct {
-    int pid;
-    int arrivalTime;
-    int burstTime;
-    int remainingTime;
-    int startTime;
-    int completionTime;
-    int waitingTime;
-    int turnaroundTime;
-    int responseTime;
-    bool hasExecuted;
-    Status status;
-    int ioRemainingTime;
-    int priority;
+    int pid;                // Process ID
+    int arrivalTime;        // Arrival Time
+    int burstTime;          // Total CPU Burst Time
+    int remainingTime;      // Remaining CPU Burst Time
+    int startTime;          // Time when process first gets the CPU
+    int completionTime;     // Time when process completes
+    int waitingTime;        // Total waiting time in ready queue
+    int turnaroundTime;     // Completion Time - Arrival Time
+    int responseTime;       // Start Time - Arrival Time
+    bool hasExecuted;       // Flag to check if the process has been executed at least once
+    Status status;          // Current status of the process
+    int ioRemainingTime;    // Remaining I/O Wait Time when blocked
+    int priority;           // Priority of the process (lower value = higher priority)
+    int blockedAtTime;      // Time when process was blocked
 } Process;
 
 // Structure for Gantt Chart Entry
@@ -150,6 +151,7 @@ bool getUserInput(Process processes[], int *n, int *timeQuantum, int *globalIOWa
         processes[i].responseTime = 0;
         processes[i].startTime = 0;
         processes[i].completionTime = 0;
+        processes[i].blockedAtTime = -1; // Initially no blocking time here, inside the loop
     }
 
     return true;
@@ -209,12 +211,14 @@ void printHeader() {
 
 void printStatus(int currentTime, int pid, const char* status, int remainingTime) {
     if (pid == IDLE) {
-        printf("%d\tIdle\t\tIdle\t\t-\n", currentTime);
+        printf("%-8d %-14s %-16s %-8s\n", currentTime, "Idle", "Idle", "-");
     } else {
-        if (remainingTime >= 0)
-            printf("%-8d P%-7d %-16s %-8d\n", currentTime, pid, status, remainingTime);
-        else
-            printf("%d\tP%d\t\t%s\t\t-\n", currentTime, pid, status);
+        printf("%-8d P%-13d %-16s ", currentTime, pid, status);
+        if (remainingTime >= 0) {
+            printf("%-8d\n", remainingTime);
+        } else {
+            printf("%-8s\n", "-");
+        }
     }
 }
 
@@ -256,15 +260,18 @@ Process* getProcessByPID(Process processes[], int n, int pid) {
 void updateBlockedProcesses(Process processes[], int n, int currentTime, int globalIOWait, Queue *readyQueue) {
     for (int i = 0; i < n; i++) {
         if (processes[i].status == BLOCKED) {
-            processes[i].ioRemainingTime--;
-            if (processes[i].ioRemainingTime <= 0) {
+            // Check if enough time has passed since blocking
+            if (currentTime >= processes[i].blockedAtTime + globalIOWait) {
                 processes[i].status = READY;
+                processes[i].blockedAtTime = -1; // Reset blocking time
+                // we want multiple I/O cycles, so we reset ioRemainingTime here
                 enqueueQ(readyQueue, processes[i].pid);
                 printStatus(currentTime, processes[i].pid, "Ready", processes[i].remainingTime);
             }
         }
     }
 }
+
 
 void handleNewArrivals(Process processes[], int n, int currentTime, Queue *readyQueue) {
     for (int i = 0; i < n; i++) {
@@ -286,62 +293,67 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
     Queue readyQueue;
     initQueue(&readyQueue);
 
-    // Dynamically allocated GanttChart for safety if simulation runs long
+    // Allocate a large enough Gantt chart array
     GanttChartEntry *ganttChart = malloc(sizeof(GanttChartEntry) * 10000);
     int ganttCount = 0;
 
     int currentTime = 0;
     int completed = 0;
-    int lastPID = IDLE;
     int totalBusyTime = 0;
+
+    // Track the last PID that was running on the CPU
+    // Start with CPU idle
+    int lastPID = IDLE;
 
     printHeader();
 
-    // Continue until all processes are completed
     while (completed < n) {
-        // Check for new arrivals
+        // Handle new arrivals and blocked processes
         handleNewArrivals(processes, n, currentTime, &readyQueue);
-        // Update blocked processes
         updateBlockedProcesses(processes, n, currentTime, globalIOWait, &readyQueue);
 
+        // Check if we have any ready process
         if (isEmpty(&readyQueue)) {
-            // CPU is idle
-            printStatus(currentTime, IDLE, "Idle", -1);
+            // No process is ready, CPU remains idle
             if (lastPID != IDLE) {
-                if (ganttCount > 0) ganttChart[ganttCount - 1].endTime = currentTime;
+                // Close the last running process block
+                if (ganttCount > 0 && ganttChart[ganttCount - 1].endTime == 0) {
+                    ganttChart[ganttCount - 1].endTime = currentTime;
+                }
+                // Start a new idle block
                 ganttChart[ganttCount].pid = IDLE;
                 ganttChart[ganttCount].startTime = currentTime;
+                ganttChart[ganttCount - 1].endTime = currentTime;
                 ganttCount++;
+
+                lastPID = IDLE;
             }
+            ganttChart[ganttCount].pid = -1;
+            ganttChart[ganttCount].startTime = currentTime;
+            ganttCount++;
+            printStatus(currentTime, IDLE, "Idle", -1);
             currentTime++;
-            lastPID = IDLE;
             continue;
         }
 
+        // There is a process ready to run
         int currentPID = dequeueQ(&readyQueue);
         Process *currentProcess = getProcessByPID(processes, n, currentPID);
-        if (!currentProcess) {
-            printf("Error: Process P%d not found.\n", currentPID);
-            free(ganttChart);
-            return;
-        }
 
-        // If process arrives in the future, CPU idle
-        if (currentProcess->arrivalTime > currentTime) {
-            enqueueQ(&readyQueue, currentPID);
-            printStatus(currentTime, IDLE, "Idle", -1);
-            if (lastPID != IDLE) {
-                if (ganttCount > 0) ganttChart[ganttCount - 1].endTime = currentTime;
-                ganttChart[ganttCount].pid = IDLE;
-                ganttChart[ganttCount].startTime = currentTime;
-                ganttCount++;
+        // Context switch handling for Gantt chart
+        if (lastPID != currentPID) {
+            // Close the previous block if it hasn't been closed
+            if (ganttCount > 0 && ganttChart[ganttCount - 1].endTime == 0) {
+                ganttChart[ganttCount - 1].endTime = currentTime;
             }
-            currentTime++;
-            lastPID = IDLE;
-            continue;
+
+            // Start a new block for this process
+            ganttChart[ganttCount].pid = currentPID;
+            ganttChart[ganttCount].startTime = currentTime;
+            ganttCount++;
         }
 
-        // Mark the process as running if it was ready
+        // Update process status if it was READY
         if (currentProcess->status == READY) {
             currentProcess->status = RUNNING;
             if (!currentProcess->hasExecuted) {
@@ -351,37 +363,28 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
             }
         }
 
-        // Gantt Chart update
-        if (lastPID != currentPID) {
-            if (lastPID != IDLE && ganttCount > 0) {
-                ganttChart[ganttCount - 1].endTime = currentTime;
-            }
-            ganttChart[ganttCount].pid = currentPID;
-            ganttChart[ganttCount].startTime = currentTime;
-            ganttCount++;
-        }
-
+        // Determine how long to run the process (up to the time quantum or remaining time)
         int execTime = (currentProcess->remainingTime < timeQuantum) ? currentProcess->remainingTime : timeQuantum;
 
+        bool processCompleted = false;
         for (int t = 0; t < execTime; t++) {
             printStatus(currentTime, currentPID, "Running", currentProcess->remainingTime);
             currentTime++;
             totalBusyTime++;
             currentProcess->remainingTime--;
 
-            // Update waiting time for all READY processes
+            // After incrementing time, handle arrivals and I/O
+            handleNewArrivals(processes, n, currentTime, &readyQueue);
+            updateBlockedProcesses(processes, n, currentTime, globalIOWait, &readyQueue);
+
+            // Update waiting time for all other READY processes
             for (int i = 0; i < n; i++) {
                 if (processes[i].status == READY && processes[i].pid != currentPID) {
                     processes[i].waitingTime++;
                 }
             }
 
-            // Check new arrivals during execution
-            handleNewArrivals(processes, n, currentTime, &readyQueue);
-            // Update blocked processes
-            updateBlockedProcesses(processes, n, currentTime, globalIOWait, &readyQueue);
-
-            // If process completes
+            // Check if process completes now
             if (currentProcess->remainingTime == 0) {
                 currentProcess->status = COMPLETED;
                 currentProcess->completionTime = currentTime;
@@ -389,37 +392,58 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
                 currentProcess->waitingTime = currentProcess->turnaroundTime - currentProcess->burstTime;
                 completed++;
                 printStatus(currentTime, currentPID, "Completed", 0);
+
+                // Close this process's block in Gantt chart
+                if (ganttCount > 0 && ganttChart[ganttCount - 1].pid == currentPID && ganttChart[ganttCount - 1].endTime == 0) {
+                    ganttChart[ganttCount - 1].endTime = currentTime;
+                }
+
+                lastPID = IDLE; // CPU will be idle next iteration since no immediate process is running now
+                processCompleted = true;
                 break;
             }
         }
 
-        // If not completed and quantum expired
+        if (processCompleted) {
+            // Move to next iteration since process finished
+            continue;
+        }
+
+        // Process did not complete after quantum
         if (currentProcess->remainingTime > 0 && currentProcess->status != COMPLETED) {
+            // Needs I/O?
             if (globalIOWait > 0) {
                 currentProcess->status = BLOCKED;
-                currentProcess->ioRemainingTime = globalIOWait;
+                currentProcess->blockedAtTime = currentTime;
                 printStatus(currentTime, currentPID, "Blocked", currentProcess->remainingTime);
+                lastPID = IDLE;
             } else {
+                // No I/O wait, re-queue the process
                 currentProcess->status = READY;
                 enqueueQ(&readyQueue, currentProcess->pid);
                 printStatus(currentTime, currentPID, "Ready", currentProcess->remainingTime);
+                lastPID = IDLE;
+            }
+            // Close current process block in Gantt chart
+            if (ganttCount > 0 && ganttChart[ganttCount - 1].pid == currentPID && ganttChart[ganttCount - 1].endTime == 0) {
+                ganttChart[ganttCount - 1].endTime = currentTime;
             }
         }
+    }
 
-        if (ganttCount > 0) {
-            ganttChart[ganttCount - 1].endTime = currentTime;
-        }
-
-        lastPID = (currentProcess->status == RUNNING) ? currentPID : IDLE;
+    // If the last block isn't ended (e.g., ended in Idle), close it
+    if (ganttCount > 0 && ganttChart[ganttCount - 1].endTime == 0) {
+        ganttChart[ganttCount - 1].endTime = currentTime;
     }
 
     // Calculate metrics
     double avgTurnaround, avgWaiting, avgResponse;
     calculateMetrics(processes, n, &avgTurnaround, &avgWaiting, &avgResponse);
-    double cpuUtil = calculateCPUUtilization(totalBusyTime, (completed > 0) ? processes[0].completionTime : 0);
-    // Note: The above CPU utilization calculation might need a re-check if processes are completed at different times.
-    // Alternatively, we can use currentTime as total simulation time:
-    cpuUtil = calculateCPUUtilization(totalBusyTime, (int)(processes[0].completionTime + totalBusyTime));
+
+    // CPU Utilization calculation
+    // Note: total time is from 0 to currentTime; totalBusyTime is how long CPU was actually running processes
+    printf("totalBusyTime: %d\n, currentTime: %d\n", totalBusyTime, currentTime);
+    double cpuUtil = calculateCPUUtilization(totalBusyTime, currentTime);
 
     // Print results
     printGanttChart(ganttChart, ganttCount);
