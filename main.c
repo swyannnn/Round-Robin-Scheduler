@@ -71,9 +71,28 @@ bool isFull(Queue *q) {
     return ((q->rear + 1) % MAX_PROCESSES) == q->front;
 }
 
+bool isInQueue(Queue *q, int pid) {
+    if (isEmpty(q)) {
+        return false;
+    }
+    int i = q->front;
+    while (1) {
+        if (q->items[i] == pid) {
+            return true;
+        }
+        if (i == q->rear) {
+            break;
+        }
+        i = (i + 1) % MAX_PROCESSES;
+    }
+    return false;
+}
+
 bool enqueueQ(Queue *q, int pid) {
     if (isFull(q)) {
-        printf("Ready Queue is full. Cannot enqueue Process P%d.\n", pid);
+        return false;
+    }
+    if (isInQueue(q, pid)) {
         return false;
     }
     if (isEmpty(q)) {
@@ -198,7 +217,7 @@ void printGanttChart(GanttChartEntry ganttChart[], int ganttCount) {
     }
     printf("|\n");
 
-    printf("%-8d", ganttChart[0].startTime);
+    printf("%-7d ", ganttChart[0].startTime);
     for (int i = 0; i < ganttCount; i++) {
         printf("%-8d", ganttChart[i].endTime);
     }
@@ -320,19 +339,16 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
                 if (ganttCount > 0 && ganttChart[ganttCount - 1].endTime == 0) {
                     ganttChart[ganttCount - 1].endTime = currentTime;
                 }
-                // Start a new idle block
-                ganttChart[ganttCount].pid = IDLE;
-                ganttChart[ganttCount].startTime = currentTime;
-                ganttChart[ganttCount - 1].endTime = currentTime;
-                ganttCount++;
-
                 lastPID = IDLE;
+            }else{
+                // If the last block was idle, no need to start a new one
+                if (ganttCount > 0 && ganttChart[ganttCount - 1].pid == IDLE) {
+                    currentTime++;
+                    continue;
+                }
             }
             ganttChart[ganttCount].pid = -1;
-            ganttChart[ganttCount].startTime = currentTime;
             ganttCount++;
-            printStatus(currentTime, IDLE, "Idle", -1);
-            currentTime++;
             continue;
         }
 
@@ -417,7 +433,8 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
                 currentProcess->blockedAtTime = currentTime;
                 printStatus(currentTime, currentPID, "Blocked", currentProcess->remainingTime);
                 lastPID = IDLE;
-            } else {
+            } 
+            else {
                 // No I/O wait, re-queue the process
                 currentProcess->status = READY;
                 enqueueQ(&readyQueue, currentProcess->pid);
@@ -442,7 +459,6 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
 
     // CPU Utilization calculation
     // Note: total time is from 0 to currentTime; totalBusyTime is how long CPU was actually running processes
-    printf("totalBusyTime: %d\n, currentTime: %d\n", totalBusyTime, currentTime);
     double cpuUtil = calculateCPUUtilization(totalBusyTime, currentTime);
 
     // Print results
