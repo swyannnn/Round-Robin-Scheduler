@@ -34,9 +34,9 @@ typedef struct {
     int turnaroundTime;     // Completion Time - Arrival Time
     int responseTime;       // Start Time - Arrival Time
     bool hasExecuted;       // Flag to check if the process has been executed at least once
+    bool hasBlocked;        // Flag to check if the process has been blocked once
     Status status;          // Current status of the process
     int ioRemainingTime;    // Remaining I/O Wait Time when blocked
-    int priority;           // Priority of the process (lower value = higher priority)
     int blockedAtTime;      // Time when process was blocked
 } Process;
 
@@ -149,13 +149,12 @@ bool getUserInput(Process processes[], int *n, int *timeQuantum, int *globalIOWa
     // I/O Wait Time
     while (!readInt("Enter I/O Wait Time: ", globalIOWait, 0, 9999, true)) {}
 
-    printf("\nEnter arrival times, burst times, and priorities for your processes:\n");
+    printf("\nEnter arrival times and burst times for your processes:\n");
     for (int i = 0; i < *n; i++) {
         printf("Process %d:\n", i + 1);
-        int arrival, burst, prio;
+        int arrival, burst;
         while (!readInt("  Arrival Time: ", &arrival, 0, 9999, false)) {}
         while (!readInt("  Burst Time: ", &burst, 1, 9999, false)) {}
-        while (!readInt("  Priority: ", &prio, 1, 9999, false)) {}
 
         processes[i].pid = i + 1;
         processes[i].arrivalTime = arrival;
@@ -163,8 +162,8 @@ bool getUserInput(Process processes[], int *n, int *timeQuantum, int *globalIOWa
         processes[i].remainingTime = burst;
         processes[i].status = READY;
         processes[i].hasExecuted = false;
+        processes[i].hasBlocked = false; 
         processes[i].ioRemainingTime = *globalIOWait;
-        processes[i].priority = prio;
         processes[i].waitingTime = 0;
         processes[i].turnaroundTime = 0;
         processes[i].responseTime = 0;
@@ -242,14 +241,13 @@ void printStatus(int currentTime, int pid, const char* status, int remainingTime
 }
 
 void printProcessTable(Process processes[], int n) {
-    printf("\n%-8s %-8s %-8s %-10s %-12s %-12s %-8s %-8s\n",
-           "Process", "Arrival", "Burst", "Priority", "Completion", "Turnaround", "Waiting", "Response");
+    printf("\n%-8s %-8s %-8s %-12s %-12s %-8s %-8s\n",
+           "Process", "Arrival", "Burst", "Completion", "Turnaround", "Waiting", "Response");
     for (int i = 0; i < n; i++) {
-        printf("P%-7d %-8d %-8d %-10d %-12d %-12d %-8d %-8d\n",
+        printf("P%-7d %-8d %-8d %-12d %-12d %-8d %-8d\n",
                processes[i].pid,
                processes[i].arrivalTime,
                processes[i].burstTime,
-               processes[i].priority,
                processes[i].completionTime,
                processes[i].turnaroundTime,
                processes[i].waitingTime,
@@ -342,15 +340,18 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
                     ganttChart[ganttCount - 1].endTime = currentTime;
                 }
                 lastPID = IDLE;
-            }else{
+            } else {
                 // If the last block was idle, no need to start a new one
                 if (ganttCount > 0 && ganttChart[ganttCount - 1].pid == IDLE) {
                     currentTime++;
                     continue;
                 }
             }
-            ganttChart[ganttCount].pid = -1;
+            // **Start a new idle block**
+            ganttChart[ganttCount].pid = IDLE;
+            ganttChart[ganttCount].startTime = currentTime;
             ganttCount++;
+            currentTime++;
             continue;
         }
 
@@ -430,9 +431,10 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
         // Process did not complete after quantum
         if (currentProcess->remainingTime > 0 && currentProcess->status != COMPLETED) {
             // Needs I/O?
-            if (globalIOWait > 0) {
+            if (globalIOWait > 0 && !currentProcess->hasBlocked) {
                 currentProcess->status = BLOCKED;
                 currentProcess->blockedAtTime = currentTime;
+                currentProcess->hasBlocked = true;
                 printStatus(currentTime, currentPID, "Blocked", currentProcess->remainingTime);
                 lastPID = IDLE;
             } 
@@ -483,7 +485,6 @@ int main() {
         printf("Error reading user input.\n");
         return 1;
     }
-
     runRoundRobin(processes, n, timeQuantum, globalIOWait);
     return 0;
 }
