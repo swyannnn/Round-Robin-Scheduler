@@ -298,8 +298,10 @@ void handleNewArrivals(Process processes[], int n, int currentTime, Queue *ready
         // If the process is ready and arrives at the current time (and hasn't been enqueued before),
         // we enqueue it now.
         if (processes[i].arrivalTime == currentTime && processes[i].status == READY && !processes[i].hasExecuted) {
-            enqueueQ(readyQueue, processes[i].pid);
-            printStatus(currentTime, processes[i].pid, "Ready", processes[i].remainingTime);
+            bool enqueued = enqueueQ(readyQueue, processes[i].pid);
+            if (enqueued) {
+                printStatus(currentTime, processes[i].pid, "Ready", processes[i].remainingTime);
+            }
         }
     }
 }
