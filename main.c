@@ -365,7 +365,9 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
 
         // Context switch handling for Gantt chart
         if (lastPID != currentPID) {
-            contextSwitches++;
+            if (currentTime > 0){
+                contextSwitches++;
+            }
             // Close the previous block if it hasn't been closed
             if (ganttCount > 0 && ganttChart[ganttCount - 1].endTime == 0) {
                 ganttChart[ganttCount - 1].endTime = currentTime;
