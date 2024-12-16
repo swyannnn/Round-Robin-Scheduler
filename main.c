@@ -255,12 +255,13 @@ void printProcessTable(Process processes[], int n) {
     }
 }
 
-void printMetrics(double avgTurnaround, double avgWaiting, double avgResponse, double cpuUtil) {
+void printMetrics(double avgTurnaround, double avgWaiting, double avgResponse, double cpuUtil, int contextSwitches) {
     printf("\nRound Robin Scheduling Performance:\n");
     printf("Average Turnaround Time: %.2f\n", avgTurnaround);
     printf("Average Waiting Time: %.2f\n", avgWaiting);
     printf("Average Response Time: %.2f\n", avgResponse);
     printf("Total CPU Utilization: %.2f%%\n", cpuUtil);
+    printf("Total Context Switches: %d\n", contextSwitches); // Added line to print context switches
 }
 
 //------------------------------//
@@ -324,6 +325,8 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
     // Start with CPU idle
     int lastPID = IDLE;
 
+    // Initialize Context Switch Counter
+    int contextSwitches = 0;
     printHeader();
 
     while (completed < n) {
@@ -340,6 +343,7 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
                     ganttChart[ganttCount - 1].endTime = currentTime;
                 }
                 lastPID = IDLE;
+                contextSwitches++;
             } else {
                 // If the last block was idle, no need to start a new one
                 if (ganttCount > 0 && ganttChart[ganttCount - 1].pid == IDLE) {
@@ -361,6 +365,7 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
 
         // Context switch handling for Gantt chart
         if (lastPID != currentPID) {
+            contextSwitches++;
             // Close the previous block if it hasn't been closed
             if (ganttCount > 0 && ganttChart[ganttCount - 1].endTime == 0) {
                 ganttChart[ganttCount - 1].endTime = currentTime;
@@ -424,7 +429,8 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
         }
 
         if (processCompleted) {
-            // Move to next iteration since process finished
+            lastPID = currentPID; // Set to the current process's PID
+            processCompleted = true;
             continue;
         }
 
@@ -436,15 +442,14 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
                 currentProcess->blockedAtTime = currentTime;
                 currentProcess->hasBlocked = true;
                 printStatus(currentTime, currentPID, "Blocked", currentProcess->remainingTime);
-                lastPID = IDLE;
             } 
             else {
                 // No I/O wait, re-queue the process
                 currentProcess->status = READY;
                 enqueueQ(&readyQueue, currentProcess->pid);
                 printStatus(currentTime, currentPID, "Ready", currentProcess->remainingTime);
-                lastPID = IDLE;
             }
+            lastPID = currentPID;
             // Close current process block in Gantt chart
             if (ganttCount > 0 && ganttChart[ganttCount - 1].pid == currentPID && ganttChart[ganttCount - 1].endTime == 0) {
                 ganttChart[ganttCount - 1].endTime = currentTime;
@@ -468,7 +473,7 @@ void runRoundRobin(Process processes[], int n, int timeQuantum, int globalIOWait
     // Print results
     printGanttChart(ganttChart, ganttCount);
     printProcessTable(processes, n);
-    printMetrics(avgTurnaround, avgWaiting, avgResponse, cpuUtil);
+    printMetrics(avgTurnaround, avgWaiting, avgResponse, cpuUtil, contextSwitches);
 
     free(ganttChart);
 }
