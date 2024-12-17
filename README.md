@@ -2,12 +2,28 @@
 
 ## Compilation
 
-To compile the program, run the following command:
+To compile and run the program, follow these steps:
 
-```
-gcc main.c -o main && ./main
-```
-This will produce an executable file named main.
+1. **Prerequisites**
+
+   **GCC Compiler:** Ensure that GCC is installed on your system.
+     - **Check GCC Installation:**
+       ```bash
+       gcc --version
+       ```
+     - **Install GCC:**
+       - **Ubuntu/Debian:**
+         ```bash
+         sudo apt update
+         sudo apt install build-essential
+         ```
+       - **macOS (with Homebrew):**
+         ```bash
+         brew install gcc
+         ```
+       - **Windows:**
+         - Install [MinGW](http://www.mingw.org/) or use [WSL](https://docs.microsoft.com/en-us/windows/wsl/install).
+
 
 ## Running the Program
 
@@ -26,7 +42,7 @@ And that's it! You will expect to see the simulation output, which includes:
 
 1. Process Table
 2. Gantt Chart
-3. Metrics Calculation
+3. Metrics Calculation (Round Robin Scheduling Performance)
 
 
 
